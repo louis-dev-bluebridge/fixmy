@@ -1,0 +1,124 @@
+x-fixmy-app: &fixmy-app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      NEXT_PUBLIC_API_URL: /backend
+  image: fix-my-app:local
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fixmy
+      POSTGRES_PASSWORD: fixmy_dev
+      POSTGRES_DB: fixmy
+    ports:
+      - "5432:5432"
+    volumes:
+      - fixmy_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixmy -d fixmy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - fixmy_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *fixmy-app
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://fixmy:fixmy_dev@postgres:5432/fixmy?schema=public
+    command: ["pnpm", "--filter", "@fixmy/database", "exec", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *fixmy-app
+    environment:
+      DATABASE_URL: postgresql://fixmy:fixmy_dev@postgres:5432/fixmy?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-before-deploy
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      INTEGRATION_MASTER_KEY: fix-my-local-integration-encryption-key-2026
+      PORT: 4000
+    command: ["node", "apps/api/dist/main.js"]
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web-client:
+    <<: *fixmy-app
+    command: ["pnpm", "--filter", "@fixmy/web-client", "start"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web-admin:
+    <<: *fixmy-app
+    command: ["pnpm", "--filter", "@fixmy/web-admin", "start"]
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web-pro:
+    <<: *fixmy-app
+    command: ["pnpm", "--filter", "@fixmy/web-pro", "start"]
+    ports:
+      - "3002:3002"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  fixmy_postgres:
+  fixmy_redis:

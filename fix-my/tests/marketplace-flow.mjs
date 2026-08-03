@@ -1,0 +1,40 @@
+const base = process.env.API_URL ?? "http://localhost:4000/api";
+const run = Date.now().toString(36);
+async function request(path, options = {}) {
+  const response = await fetch(base + path, { ...options, headers: { "Content-Type": "application/json", ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}) }, body: options.body ? JSON.stringify(options.body) : undefined });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`${options.method ?? "GET"} ${path}: ${response.status} ${JSON.stringify(data)}`);
+  return data;
+}
+const post = (path, body, token) => request(path, { method: "POST", body, token });
+const patch = (path, body, token) => request(path, { method: "PATCH", body, token });
+const get = (path, token) => request(path, { token });
+
+const categories = await get("/categories");
+const categoryId = categories[0].id;
+const proEmail = `pro.flow.${run}@fixmy.local`;
+const clientEmail = `client.flow.${run}@fixmy.local`;
+const pro = await post("/auth/register/pro", { name: "Pro Browser Flow", email: proEmail, password: "Pro12345!", profession: "Especialista de prueba", categoryId });
+const admin = await post("/auth/login", { email: "admin@fixmy.local", password: "Admin123!" });
+await patch(`/admin/pros/${pro.user.id}/approval`, { status: "APPROVED" }, admin.token);
+const proSession = await post("/auth/login", { email: proEmail, password: "Pro12345!" });
+const client = await post("/auth/register/client", { name: "Cliente Browser Flow", email: clientEmail, password: "Client12345!" });
+const draft = await post("/jobs", { categoryId, title: "Trabajo con pago protegido", description: "Validar publicación después del pago", address: "Rue de la Loi 1, Brussels", budgetCents: 9900, lat: 50.8467, lng: 4.3525 }, client.token);
+if (draft.status !== "DRAFT") throw new Error(`Expected DRAFT, received ${draft.status}`);
+const beforePayment = await get("/jobs/available", proSession.token);
+if (beforePayment.some((job) => job.id === draft.id)) throw new Error("Unpaid job was visible to Pro");
+const methods = await get("/payments/methods", client.token);
+const mock = methods.find((method) => method.providerType === "MOCK");
+if (!mock) throw new Error("No active MOCK payment provider");
+const checkout = await post("/payments/checkout", { jobId: draft.id, providerId: mock.providerId, method: mock.method, idempotencyKey: `flow:${draft.id}` }, client.token);
+await post(`/payments/${checkout.payment.id}/mock-confirm`, { outcome: "success" }, client.token);
+const afterPayment = await get("/jobs/available", proSession.token);
+if (!afterPayment.some((job) => job.id === draft.id)) throw new Error("Paid job was not published");
+const accepted = await post(`/jobs/${draft.id}/accept`, {}, proSession.token);
+const enRoute = await patch(`/jobs/${draft.id}/status`, { status: "PRO_EN_ROUTE" }, proSession.token);
+const progress = await patch(`/jobs/${draft.id}/status`, { status: "IN_PROGRESS" }, proSession.token);
+const completed = await patch(`/jobs/${draft.id}/status`, { status: "COMPLETED" }, proSession.token);
+const clientJobs = await get("/jobs/mine", client.token);
+const final = clientJobs.find((job) => job.id === draft.id);
+if (final?.status !== "COMPLETED" || final?.payment?.status !== "SUCCEEDED") throw new Error("Final persisted state is invalid");
+console.log(JSON.stringify({ ok: true, run, jobId: draft.id, paymentId: checkout.payment.id, publicationGate: "PASSED", states: [draft.status, checkout.payment.status, accepted.status, enRoute.status, progress.status, completed.status], finalPayment: final.payment.status }, null, 2));
