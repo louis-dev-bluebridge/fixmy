@@ -1,0 +1,30 @@
+{
+  "name": "fix-my",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:web": "turbo dev --filter=@fixmy/web-client --filter=@fixmy/web-admin --filter=@fixmy/web-pro --filter=@fixmy/api",
+    "dev:infra": "docker compose up -d",
+    "dev:infra:stop": "docker compose down",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "verify": "pnpm typecheck && pnpm build",
+    "db:generate": "pnpm --filter @fixmy/database generate",
+    "db:migrate": "pnpm --filter @fixmy/database migrate",
+    "db:seed": "pnpm --filter @fixmy/database seed",
+    "local:up": "docker compose up -d",
+    "local:down": "docker compose down",
+    "local:prepare": "pnpm db:generate && pnpm --filter @fixmy/database exec prisma migrate deploy && pnpm db:seed",
+    "deploy:local": "docker compose up -d --build",
+    "deploy:status": "docker compose ps",
+    "deploy:logs": "docker compose logs -f --tail=200 api web-client web-admin web-pro",
+    "deploy:down": "docker compose down",
+    "test:flow": "node tests/marketplace-flow.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2"
+  }
+}

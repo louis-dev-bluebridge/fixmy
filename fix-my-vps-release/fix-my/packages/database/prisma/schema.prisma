@@ -1,0 +1,282 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CLIENT
+  PRO
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum ProApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum JobStatus {
+  DRAFT
+  PAYMENT_PENDING
+  PAYMENT_FAILED
+  OPEN
+  ASSIGNED
+  PRO_EN_ROUTE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentProviderType {
+  MOCK
+  STRIPE
+  PAYPAL
+  PAYCONIQ
+  GENERIC_REST
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  REQUIRES_ACTION
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique @db.Citext
+  passwordHash String
+  name         String
+  phone        String?
+  role         UserRole
+  status             UserStatus     @default(ACTIVE)
+  mustChangePassword Boolean        @default(false)
+  deletedAt          DateTime?
+  client             ClientProfile?
+  pro                ProProfile?
+  jobs               Job[]          @relation("ClientJobs")
+  jobHistory         JobHistory[]
+  refunds            Refund[]       @relation("RefundRequester")
+  activities         ActivityLog[]  @relation("ActivityActor")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model ClientProfile {
+  userId String @id @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProProfile {
+  userId         String            @id @db.Uuid
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profession      String
+  bio             String?
+  businessName    String?
+  phone           String?
+  vatNumber       String?
+  serviceArea     String            @default("Brussels")
+  serviceRadiusKm Int               @default(25)
+  hourlyRateCents Int?
+  yearsExperience Int               @default(0)
+  approvalStatus  ProApprovalStatus @default(PENDING)
+  rating          Decimal           @default(5.0) @db.Decimal(3, 2)
+  completedJobs   Int               @default(0)
+  isOnline        Boolean           @default(false)
+  latitude        Float             @default(50.8467)
+  longitude       Float             @default(4.3525)
+  location       Unsupported("geography(Point,4326)")?
+  services       ProService[]
+  assignedJobs   Job[]             @relation("AssignedProJobs")
+}
+
+model ServiceCategory {
+  id          String             @id @default(uuid()) @db.Uuid
+  parentId    String?            @db.Uuid
+  parent      ServiceCategory?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    ServiceCategory[]  @relation("CategoryTree")
+  slug        String             @unique
+  icon        String
+  nameEs      String
+  nameFr      String
+  nameNl      String
+  nameEn      String
+  namePt      String
+  description String
+  isActive    Boolean            @default(true)
+  proServices ProService[]
+  jobs        Job[]
+  createdAt   DateTime           @default(now())
+}
+
+model ProService {
+  proId      String          @db.Uuid
+  categoryId String          @db.Uuid
+  pro        ProProfile      @relation(fields: [proId], references: [userId], onDelete: Cascade)
+  category   ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([proId, categoryId])
+}
+
+model Job {
+  id            String          @id @default(uuid()) @db.Uuid
+  clientId      String          @db.Uuid
+  assignedProId String?         @db.Uuid
+  categoryId    String          @db.Uuid
+  title         String
+  description   String
+  address       String
+  budgetCents   Int
+  currency      String          @default("EUR")
+  status        JobStatus       @default(OPEN)
+  latitude      Float
+  longitude     Float
+  servicePoint  Unsupported("geography(Point,4326)")?
+  etaMinutes    Int?
+  client        User            @relation("ClientJobs", fields: [clientId], references: [id])
+  assignedPro   ProProfile?     @relation("AssignedProJobs", fields: [assignedProId], references: [userId])
+  category      ServiceCategory @relation(fields: [categoryId], references: [id])
+  history       JobHistory[]
+  payments      Payment[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model JobHistory {
+  id        String    @id @default(uuid()) @db.Uuid
+  jobId     String    @db.Uuid
+  actorId   String    @db.Uuid
+  status    JobStatus
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  actor     User      @relation(fields: [actorId], references: [id])
+  createdAt DateTime  @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  actor      User?    @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model SystemLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  level      String
+  source     String
+  message    String
+  stack      String?
+  method     String?
+  path       String?
+  statusCode Int?
+  requestId  String?
+  actorId    String?  @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([level, createdAt])
+  @@index([source, createdAt])
+  @@index([path, createdAt])
+  @@index([requestId])
+}
+
+model PaymentProvider {
+  id                   String              @id @default(uuid()) @db.Uuid
+  type                 PaymentProviderType
+  name                 String
+  publicKey            String?
+  supportedMethods     String[]
+  mode                 String              @default("test")
+  publicConfig         Json?
+  encryptedCredentials String?
+  isActive             Boolean             @default(false)
+  priority             Int                 @default(0)
+  lastTestedAt         DateTime?
+  lastTestSucceeded    Boolean?
+  payments             Payment[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([isActive, priority])
+}
+
+model Payment {
+  id                  String        @id @default(uuid()) @db.Uuid
+  jobId               String        @db.Uuid
+  providerId          String        @db.Uuid
+  method              String
+  status              PaymentStatus @default(CREATED)
+  amountCents         Int
+  currency            String        @default("EUR")
+  externalReference   String?
+  checkoutReference   String?
+  idempotencyKey      String        @unique
+  failureMessage      String?
+  providerPayload     Json?
+  paidAt              DateTime?
+  job                 Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  provider            PaymentProvider @relation(fields: [providerId], references: [id])
+  events              PaymentEvent[]
+  refunds             Refund[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([jobId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PaymentEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  paymentId       String   @db.Uuid
+  externalEventId String   @unique
+  type            String
+  payload         Json?
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+}
+
+model Refund {
+  id             String       @id @default(uuid()) @db.Uuid
+  paymentId      String       @db.Uuid
+  requestedById  String       @db.Uuid
+  amountCents    Int
+  reason         String
+  status         RefundStatus @default(PENDING)
+  externalReference String?
+  payment        Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  requestedBy    User         @relation("RefundRequester", fields: [requestedById], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([paymentId, createdAt])
+}
