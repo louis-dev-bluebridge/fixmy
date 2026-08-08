@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 10 bloquea por defecto los scripts postinstall. Sin esta lista
+# Prisma no genera su cliente y el build falla.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "@scarf/scarf"
+  - esbuild
+  - prisma
+  - sharp

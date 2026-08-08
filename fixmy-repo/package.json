@@ -1,0 +1,39 @@
+{
+  "name": "fix-my",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:infra": "docker compose up -d postgres redis",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "verify": "pnpm typecheck && pnpm build",
+
+    "build:api": "pnpm --filter @fixmy/database generate && pnpm --filter @fixmy/api build",
+    "build:client": "pnpm --filter @fixmy/web-client build",
+    "build:admin": "pnpm --filter @fixmy/web-admin build",
+    "build:pro": "pnpm --filter @fixmy/web-pro build",
+
+    "start:api": "pnpm --filter @fixmy/api start",
+    "start:client": "pnpm --filter @fixmy/web-client start",
+    "start:admin": "pnpm --filter @fixmy/web-admin start",
+    "start:pro": "pnpm --filter @fixmy/web-pro start",
+
+    "db:generate": "pnpm --filter @fixmy/database generate",
+    "db:migrate": "pnpm --filter @fixmy/database exec prisma migrate deploy",
+    "db:seed": "pnpm --filter @fixmy/database seed",
+    "db:setup": "pnpm db:generate && pnpm db:migrate && pnpm db:seed",
+
+    "deploy:local": "docker compose up -d --build",
+    "deploy:status": "docker compose ps",
+    "deploy:logs": "docker compose logs -f --tail=200 api web-client web-admin web-pro",
+    "deploy:down": "docker compose down",
+
+    "test:flow": "node tests/marketplace-flow.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2"
+  }
+}
